@@ -13,4 +13,4 @@ Components:
 <img src="https://github.com/boy4ik7/table-clock/blob/main/image/img3.png?raw=true" width="400">
 If you can't find your locality, just enter its coordinates
 
-## libraries were used <a href="https://github.com/GyverLibs">GyverLibs, </a>
+## libraries were used <a href="https://github.com/GyverLibs">GyverLibs </a>
