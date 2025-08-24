@@ -15,4 +15,4 @@ If you can't find your locality, just enter its coordinates
 <img src="https://github.com/boy4ik7/table-clock/blob/main/image/img4.jpg?raw=true" width="400">
 <img src="https://github.com/boy4ik7/table-clock/blob/main/image/img5.jpg?raw=true" width="400">
 
-## libraries were used <a href="https://github.com/boy4ik7/table-clock/blob/main/platformio.ini">latformio.ini</a>
+## Libraries that were used <a href="https://github.com/boy4ik7/table-clock/blob/main/platformio.ini">latformio.ini</a>
