@@ -300,12 +300,22 @@ void lcd_show() {
   b.tick();
   if (beeper == true) {
     if (b.press()) {
-      digitalWrite(BUZZER, LOW);
       lcd.clear();
       beeper = false;
       count = 0;
       one_sec.stop();
       backlight_off.start();
+      digitalWrite(BUZZER, LOW);
+      delay(10);
+    }
+    if (db[kk::alarm_bool] == false) {
+      lcd.clear();
+      beeper = false;
+      count = 0;
+      one_sec.stop();
+      backlight_off.start();
+      digitalWrite(BUZZER, LOW);
+      delay(10);
     }
     lcd.setCursor(5, 0);
     if (db[kk::alarm_hour] < 10) {
@@ -333,12 +343,13 @@ void lcd_show() {
       lcd.print(F("-w-"));
     }
     if (count > 60) {
-      digitalWrite(BUZZER, LOW);
       lcd.clear();
       count = 0;
       beeper = false;
       one_sec.stop();
       backlight_off.start();
+      digitalWrite(BUZZER, LOW);
+      delay(10);
     }
   } else {
     if (backlight_off == true) lcd.noBacklight();
