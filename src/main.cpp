@@ -45,6 +45,9 @@ DB_KEYS(
     kk,
     wifi_ssid,
     wifi_pass,
+    dynamic_flag,
+    ssids,
+    ssids_index,
     time_zone,
     latitude,
     longitude,
@@ -132,13 +135,48 @@ void weather_check() {
   Serial.println("");
 }
 
+void scan_wifi() {
+  int scans_networks = WiFi.scanNetworks();
+  db_ram[kk::ssids] = "";
+  db_ram[kk::ssids_index] = 0;
+  for (int i = 0; i < scans_networks; i++) {
+    db_ram[kk::ssids] += WiFi.SSID(i) + ";";
+  }
+}
+
 void build(sets::Builder& b) {
   if (b.beginGroup("Wi-Fi")) {
-    b.Input(kk::wifi_ssid, "SSID:");
+    if (db[kk::dynamic_flag]) b.Select(kk::ssids_index, "Found SSIDS:", db_ram[kk::ssids]);
+    else b.Input(kk::wifi_ssid, "Manual input SSID:");
     b.Pass(kk::wifi_pass, "Password:");
-    if (b.Button(kk::apply, "Connect")) {
-      db.update();
+    if (db[kk::dynamic_flag]) {
+      if (b.Button("Cancel", sets::Colors::Red)) {
+        db[kk::dynamic_flag] = false;
+        db_ram[kk::wifi_pass] = "";
+        sett.attachDB(&db);
+        b.reload();
+      }
+    } else {
+      if (b.Button("Find networks", sets::Colors::Blue)) {
+        db[kk::dynamic_flag] = true;
+        scan_wifi();
+        sett.attachDB(&db_ram);
+        b.reload();
+      }
+    }
+    if (b.Button("Connect")) {
+      if(db[kk::dynamic_flag]) {
+        db_ram[kk::wifi_ssid] = WiFi.SSID(db_ram[kk::ssids_index]);
+        db[kk::wifi_ssid] = String(db_ram[kk::wifi_ssid]);
+        db[kk::wifi_pass] = String(db_ram[kk::wifi_pass]);
+        db[kk::dynamic_flag] = false;
+        db_ram[kk::wifi_pass] = "";
+      }
+      Serial.println("Connect to: \n" + String(db[kk::wifi_ssid]) + "\n"+ String(db[kk::wifi_pass]) + "\n");
       WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
+      db.update();
+      sett.attachDB(&db);
+      b.reload();
     }
     b.endGroup();
   }
@@ -476,8 +514,11 @@ void setup() {
   db.init(kk::alarm_min, 0);
   db.init(kk::info_show, false);
   db.init(kk::location, "");
-  //db_ram.init(kk::search_location, false);
-  //db_ram.init(kk::search_location, false);
+  db_ram.init(kk::wifi_ssid, "");
+  db_ram.init(kk::wifi_pass, "");
+  db_ram.init(kk::dynamic_flag, false);
+  db_ram.init(kk::ssids, "");
+  db_ram.init(kk::ssids_index, 0);
   db_ram.init(kk::search_status, false);
   db_ram.init(kk::city_index, 0);
   db_ram.init(kk::city_list, "");
