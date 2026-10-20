@@ -16,12 +16,12 @@
 #include <GyverHTTP.h>
 #include <ArduinoJson.h>
 #include <EncButton.h>
-#include <LiquidCrystal_I2C.h>
+#include <GyverLCD.h>
+//#include <GyverLCD_UTF8.h>
 #include <GTimer.h>
 
-#define COLUMS 16
-#define ROWS 2
-LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
+GyverLCD lcd(0x27, 16, 2);
+//GyverLCD_UTF8 lcd(0x27, 16, 2);
 
 GyverDBFile db(&LittleFS, "/data.db");
 GyverDB db_ram;
@@ -34,12 +34,12 @@ GTimer<millis> backlight_off;
 GTimer<millis> screen_show;
 GTimer<millis> one_sec;
 
-bool timeout, alarm, pik, beeper, flag = false;
+bool timeout, alarm, pik, beeper, flag = false, start_one = true, localip = false, softip = false;
 float temperature, windspeed;
 int hum, temp_in, temp_out, wind_s, i;
 String days[] = {"Err", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 int8_t count = 0;
-String updated;
+//String updated;
 
 DB_KEYS(
     kk,
@@ -59,6 +59,36 @@ DB_KEYS(
     search_status,
     city_index,
     city_list,
+    do_not_turn_off_screen,
+    new_hour_screen_bool,
+    new_hour_sound_bool,
+    screen_switch,
+    reminder_bool,
+    reminder_1_bool,
+    reminder_1_repeat_bool,
+    reminder_1_text,
+    reminder_1_hour,
+    reminder_1_min,
+    reminder_2_bool,
+    reminder_2_repeat_bool,
+    reminder_2_text,
+    reminder_2_hour,
+    reminder_2_min,
+    reminder_3_bool,
+    reminder_3_repeat_bool,
+    reminder_3_text,
+    reminder_3_hour,
+    reminder_3_min,
+    reminder_4_bool,
+    reminder_4_repeat_bool,
+    reminder_4_text,
+    reminder_4_hour,
+    reminder_4_min,
+    reminder_5_bool,
+    reminder_5_repeat_bool,
+    reminder_5_text,
+    reminder_5_hour,
+    reminder_5_min,
     apply);
 
 String get_weather(float latitude, float longitude) {
@@ -72,7 +102,7 @@ String get_weather(float latitude, float longitude) {
       if (resp.code() == 200) {
         result = resp.body().readString();
         Serial.println("Weather received!");
-        Serial.println(result);
+        //Serial.println(result);
         Serial.println("");
       } else {
         Serial.print("Error - ");
@@ -91,16 +121,16 @@ String get_city(String city) {
   ghttp::Client http(client, "geocoding-api.open-meteo.com", 443);
   if (http.request(url)) {
     ghttp::Client::Response resp = http.getResponse();
-    if (resp.code() == 200) {
+    if (resp.code() == 200) result = resp.body().readString();/*{
       result = resp.body().readString();
       Serial.println("Cities received!");
-      Serial.println(result);
+      //Serial.println(result);
       Serial.println("");
     } else {
       Serial.print("Error - ");
       Serial.print(resp.code());
       Serial.println("");
-    }
+    }*/
   }
   return result;
 }
@@ -123,16 +153,21 @@ String index_city() {
 }
 
 void weather_check() {
-  db_ram[kk::search_status] = false;
-  deserializeJson(json, get_weather(db[kk::latitude], db[kk::longitude]));
-  temperature = json["current_weather"]["temperature"];
-  windspeed = json["current_weather"]["windspeed"];
-  hum = round(AHT.readHumidity());
-  temp_in = round(AHT.readTemperature());
-  temp_out = round(temperature);
-  wind_s = round(windspeed);
-  Serial.println("Updated weather!");
-  Serial.println("");
+  if ((db[kk::latitude] != 0) && (db[kk::longitude] != 0)) {
+    db_ram[kk::search_status] = false;
+    deserializeJson(json, get_weather(db[kk::latitude], db[kk::longitude]));
+    temperature = json["current_weather"]["temperature"];
+    windspeed = json["current_weather"]["windspeed"];
+    hum = round(AHT.readHumidity());
+    temp_in = round(AHT.readTemperature());
+    temp_out = round(temperature);
+    wind_s = round(windspeed);
+    Serial.println("Updated weather!");
+    Serial.println("");
+  } else {
+    Serial.println("Error! Latitude and Longitude are 0");
+    Serial.println("");
+  }
 }
 
 void scan_wifi() {
@@ -146,7 +181,8 @@ void scan_wifi() {
 
 void build(sets::Builder& b) {
   if (b.beginGroup("Wi-Fi")) {
-    if (db[kk::dynamic_flag]) b.Select(kk::ssids_index, "Found SSIDS:", db_ram[kk::ssids]);
+    String SSIDS = db_ram[kk::ssids];
+    if (db[kk::dynamic_flag]) b.Select(kk::ssids_index, "Found SSIDS:", SSIDS);
     else b.Input(kk::wifi_ssid, "Manual input SSID:");
     b.Pass(kk::wifi_pass, "Password:");
     if (db[kk::dynamic_flag]) {
@@ -181,24 +217,93 @@ void build(sets::Builder& b) {
     b.endGroup();
   }
   
-  if (b.beginRow("Time")) {
+  if (b.beginGroup("Screen and Time")) {
+    b.Switch(kk::do_not_turn_off_screen, "Do not turn off the screen");
+    b.reload();
+    if (db[kk::do_not_turn_off_screen] == false) {
+      b.Switch(kk::new_hour_screen_bool, "Screen lights up at the start of a new hour");
+    }
+    b.Switch(kk::new_hour_sound_bool, "Emit a sound at the start of each new hour");
+    b.Switch(kk::screen_switch, "Automatic screen switching");
+    db.update();
     b.Select(kk::time_zone, "Time zone:", " UTC+0; UTC+1; UTC+2; UTC+3; UTC+4; UTC+5; UTC+6;");
-    if (b.Button("Confirm")) {
+    if (b.Button("Update time")) {
       db.update();
       NTP.begin(db[kk::time_zone]);
     }
-    b.endRow();
+    b.endGroup();
   }
 
   if (b.beginRow("Alarm")) {
-    b.Input(kk::alarm_hour, "Hour:");
-    b.Input(kk::alarm_min, "Minute:");
+    //b.Input(kk::alarm_hour, "Hour:");
+    b.Spinner(kk::alarm_hour, "Hour:", 0, 23);
+    //b.Input(kk::alarm_min, "Minute:");
+    b.Spinner(kk::alarm_min, "Minute:", 0, 59);
     b.Label("", "");
-    b.Switch(kk::alarm_bool, "OFF/ON");
+    b.Switch(kk::alarm_bool, "");
     db.update();
     b.endRow();
   }
-  
+
+  if (b.beginGroup("Reminders")) {
+    b.Switch(kk::reminder_bool, "Enable");
+    db.update();
+    b.reload();
+    if (db[kk::reminder_bool] == true) {
+      b.Switch(kk::reminder_1_bool, "Reminder 1");
+      b.Input(kk::reminder_1_text, "Text:");
+      b.Switch(kk::reminder_1_repeat_bool, "Repeat every day");
+      db.update();
+      if (b.beginRow(" ")) {
+        b.Spinner(kk::reminder_1_hour, "Hour:", 0, 23);
+        b.Spinner(kk::reminder_1_min, "Minute:", 0, 59);
+        db.update();
+        b.endRow();
+      }
+      b.Switch(kk::reminder_2_bool, "Reminder 2");
+      b.Input(kk::reminder_2_text, "Text:");
+      b.Switch(kk::reminder_2_repeat_bool, "Repeat every day");
+      db.update();
+      if (b.beginRow(" ")) {
+        b.Spinner(kk::reminder_2_hour, "Hour:", 0, 23);
+        b.Spinner(kk::reminder_2_min, "Minute:", 0, 59);
+        db.update();
+        b.endRow();
+      }
+      b.Switch(kk::reminder_3_bool, "Reminder 3");
+      b.Input(kk::reminder_3_text, "Text:");
+      b.Switch(kk::reminder_3_repeat_bool, "Repeat every day");
+      db.update();
+      if (b.beginRow(" ")) {
+        b.Spinner(kk::reminder_3_hour, "Hour:", 0, 23);
+        b.Spinner(kk::reminder_3_min, "Minute:", 0, 59);
+        db.update();
+        b.endRow();
+      }
+      b.Switch(kk::reminder_4_bool, "Reminder 4");
+      b.Input(kk::reminder_4_text, "Text:");
+      b.Switch(kk::reminder_4_repeat_bool, "Repeat every day");
+      db.update();
+      if (b.beginRow(" ")) {
+        b.Spinner(kk::reminder_4_hour, "Hour:", 0, 23);
+        b.Spinner(kk::reminder_4_min, "Minute:", 0, 59);
+        db.update();
+        b.endRow();
+      }
+      b.Switch(kk::reminder_5_bool, "Reminder 5");
+      b.Input(kk::reminder_5_text, "Text:");
+      b.Switch(kk::reminder_5_repeat_bool, "Repeat every day");
+      db.update();
+      if (b.beginRow(" ")) {
+        b.Spinner(kk::reminder_5_hour, "Hour:", 0, 23);
+        b.Spinner(kk::reminder_5_min, "Minute:", 0, 59);
+        db.update();
+        b.endRow();
+      }
+    }
+    b.endGroup();
+  }
+    
   if (b.beginGroup("Location")) {
     b.Input(kk::latitude, "Latitude:");
     b.Input(kk::longitude, "Longitude:");
@@ -212,7 +317,8 @@ void build(sets::Builder& b) {
       b.reload();
     }
     if (db_ram[kk::search_status] == true) {
-      b.Select(kk::city_index, "City", db_ram[kk::city_list]);
+      String CITY_LIST = db_ram[kk::city_list];
+      b.Select(kk::city_index, "City", CITY_LIST);
       if (b.Button("Confirm")) {
         if (db_ram[kk::city_list].toString() != "Not Found;") {
           float lati, longi;
@@ -221,7 +327,7 @@ void build(sets::Builder& b) {
           db[kk::latitude] = lati;
           db[kk::longitude] = longi;
           db.update();
-          weather_check();
+          //weather_check();
         }
         db_ram[kk::search_status] = false;
         db_ram[kk::city_index] = 0;
@@ -248,11 +354,11 @@ void build(sets::Builder& b) {
       b.Label("humidity_inside"_h, "Humidity inside (%):");
       b.Label("temperature_outside"_h, "Temperature outside (°C):");
       b.Label("windspeed"_h, "Windspeed (km/s):");
-      b.Label("updated"_h, "Updated:");
+      //b.Label("updated"_h, "Updated:");
     }
     b.endGroup();
   }
-  b.Link("GitHub by BOY4ik", "https://github.com/boy4ik7/table-clock");
+  b.Link("GitHub", "https://github.com/boy4ik7/table-clock");
 }
 
 void update(sets::Updater& upd) {
@@ -264,7 +370,7 @@ void update(sets::Updater& upd) {
     upd.update("humidity_inside"_h, round(AHT.readHumidity() * 10) / 10);
     upd.update("temperature_outside"_h, temperature);
     upd.update("windspeed"_h, windspeed);
-    upd.update("updated"_h, updated);
+    //upd.update("updated"_h, updated);
   }
 }
 
@@ -334,143 +440,267 @@ byte watch[] = {
   B00000
 };
 
-void lcd_show() {
-  b.tick();
-  if (beeper == true) {
-    if (b.press()) {
-      lcd.clear();
-      beeper = false;
-      count = 0;
-      one_sec.stop();
-      backlight_off.start();
-      digitalWrite(BUZZER, LOW);
-      delay(10);
+void beeper_active() {
+  if (b.press()) {
+    lcd.clear();
+    beeper = false;
+    count = 0;
+    one_sec.stop();
+    backlight_off.start();
+    digitalWrite(BUZZER, LOW);
+    delay(10);
+  }
+  if (db[kk::alarm_bool] == false) {
+    lcd.clear();
+    beeper = false;
+    count = 0;
+    one_sec.stop();
+    backlight_off.start();
+    digitalWrite(BUZZER, LOW);
+    delay(10);
+  }
+  lcd.setCursor(5, 0);
+  if (db[kk::alarm_hour] < 10) {
+    lcd.print("0");
+  }
+  lcd.print(db[kk::alarm_hour]);
+  lcd.print(":");
+  if (db[kk::alarm_min] < 10) {
+    lcd.print("0");
+  }
+  lcd.print(db[kk::alarm_min]);
+  if (one_sec == true) {
+    pik = !pik;
+    count += 1;
+  }
+  if (pik == true) {
+    lcd.setBacklight(true);
+    //lcd.setDisplay(true);
+    digitalWrite(BUZZER, HIGH);
+    lcd.setCursor(6, 1);
+    lcd.print("0w0");
+  } else {
+    if (db[kk::do_not_turn_off_screen] == false) lcd.setBacklight(false);
+    //lcd.setDisplay(false);
+    digitalWrite(BUZZER, LOW);
+    lcd.setCursor(6, 1);
+    lcd.print("-w-");
+  }
+  if (count > 60) {
+    lcd.clear();
+    count = 0;
+    beeper = false;
+    one_sec.stop();
+    backlight_off.start();
+    digitalWrite(BUZZER, LOW);
+    delay(10);
+  }
+}
+
+void lcd_print() {
+  if (backlight_off == true) {
+    //lcd.setDisplay(false);
+    if (db[kk::do_not_turn_off_screen] == false) lcd.setBacklight(false);
+  } else {
+    //lcd.setDisplay(true);
+    lcd.setBacklight(true);
+  }
+  if (b.click()) {
+    if (backlight_off == false) {
+      flag = !flag;
     }
-    if (db[kk::alarm_bool] == false) {
-      lcd.clear();
-      beeper = false;
-      count = 0;
-      one_sec.stop();
-      backlight_off.start();
-      digitalWrite(BUZZER, LOW);
-      delay(10);
+    backlight_off.start();
+    screen_show.start();
+  }
+  if (b.hold()) {
+    db[kk::alarm_bool] = !db[kk::alarm_bool];
+    db.update();
+    backlight_off.start();
+    screen_show.start();
+  }
+  // экран 1
+  if (screen_show == true && db[kk::screen_switch] == true) {
+    flag = !flag;
+    lcd.clear();
+  }
+  if (flag == true) {
+    // первая строка
+    lcd.home();
+    // Значек статуса будильника вкл/выкл
+    if (db[kk::alarm_bool] == true) lcd.write(1);
+    else lcd.print(" ");
+    // Время
+    if (NTP.hour() < 10) {
+      lcd.print("0");
     }
-    lcd.setCursor(5, 0);
+    lcd.print(NTP.hour());
+    lcd.print(":");
+    if (NTP.minute() < 10) {
+      lcd.print("0");
+    }
+    lcd.print(NTP.minute());
+    lcd.print("  ");
+    // Температура внутри
+    lcd.setCursor(9, 0);
+    lcd.write(3);
+    lcd.print(temp_in);
+    lcd.write(223);
+    lcd.print("C  ");
+    // вторая строка
+    // Дата
+    lcd.setCursor(0, 1);
+    lcd.print(NTP.day());
+    lcd.print(".");
+    lcd.print(NTP.month());
+    lcd.print(".");
+    lcd.print(NTP.year() - 2000);
+    //lcd.setCursor(11, 1);
+    lcd.print("  ");
+    // Влажность внутри
+    lcd.setCursor(9, 1);
+    lcd.write(2);
+    lcd.print(hum);
+    lcd.print("%");
+    lcd.print("   ");
+  } 
+  // Экран 2
+  if (flag == false) {
+    // первая строка
+    // Будильник (Время)
+    lcd.home();
+    lcd.write(5);
     if (db[kk::alarm_hour] < 10) {
-      lcd.print(F("0"));
+      lcd.print("0");
     }
     lcd.print(db[kk::alarm_hour]);
-    lcd.print(F(":"));
+    lcd.print(":");
     if (db[kk::alarm_min] < 10) {
-      lcd.print(F("0"));
+      lcd.print("0");
     }
     lcd.print(db[kk::alarm_min]);
-    if (one_sec == true) {
-      pik = !pik;
-      count += 1;
-    }
-    if (pik == true) {
-      lcd.backlight();
-      digitalWrite(BUZZER, HIGH);
-      lcd.setCursor(6, 1);
-      lcd.print(F("0w0"));
-    } else {
-      lcd.noBacklight();
-      digitalWrite(BUZZER, LOW);
-      lcd.setCursor(6, 1);
-      lcd.print(F("-w-"));
-    }
-    if (count > 60) {
-      lcd.clear();
-      count = 0;
-      beeper = false;
-      one_sec.stop();
-      backlight_off.start();
-      digitalWrite(BUZZER, LOW);
-      delay(10);
-    }
-  } else {
-    if (backlight_off == true) lcd.noBacklight();
-    else lcd.backlight();
-    if (b.click()) {
-      if (backlight_off == false) {
-        flag = !flag;
-      }
-      backlight_off.start();
-      screen_show.start();
-    }
-    if (b.hold()) {
-      db[kk::alarm_bool] = !db[kk::alarm_bool];
-      db.update();
-      backlight_off.start();
-      screen_show.start();
-    }
-    if (screen_show == true) flag = !flag;
-    if (flag == true) {
-      // первая строка
-      lcd.setCursor(0, 0);
-      if (db[kk::alarm_bool] == true) lcd.write(1);
-      else lcd.print(F(" "));
-      if (NTP.hour() < 10) {
-        lcd.print(F("0"));
-      }
-      lcd.print(NTP.hour());
-      lcd.print(F(":"));
-      if (NTP.minute() < 10) {
-        lcd.print(F("0"));
-      }
-      lcd.print(NTP.minute());
-      lcd.print(F("  "));
-      lcd.setCursor(9, 0);
-      lcd.write(3);
-      lcd.print(temp_in);
-      lcd.write(223);
-      lcd.print(F("C  "));
-      // вторая строка
-      lcd.setCursor(0, 1);
-      lcd.print(NTP.day());
-      lcd.print(F("."));
-      lcd.print(NTP.month());
-      lcd.print(F("."));
-      lcd.print(NTP.year() / 100);
-      //lcd.setCursor(11, 1);
-      lcd.print(F("  "));
-      lcd.setCursor(9, 1);
-      lcd.write(2);
-      lcd.print(hum);
-      lcd.print(F("%"));
-      lcd.print(F("   "));
-    } 
-    if (flag == false) {
-      // первая строка
-      lcd.setCursor(0, 0);
-      lcd.write(5);
-      if (db[kk::alarm_hour] < 10) {
-        lcd.print(F("0"));
-      }
-      lcd.print(db[kk::alarm_hour]);
-      lcd.print(F(":"));
-      if (db[kk::alarm_min] < 10) {
-        lcd.print(F("0"));
-      }
-      lcd.print(db[kk::alarm_min]);
-      lcd.print(F("  "));
-      lcd.setCursor(9, 0);
-      lcd.write(4);
-      lcd.print(temp_out);
-      lcd.write(223);
-      lcd.print(F("C  "));
-      // вторая строка
-      lcd.setCursor(0, 1);
-      lcd.print(F(" "));
-      lcd.print(days[NTP.weekDay()]);
-      lcd.print(F("   "));
-      lcd.setCursor(9, 1);
-      lcd.write(6);
-      lcd.print(wind_s);
-      lcd.print(F("Km/h  "));
-    }
+    lcd.print("  ");
+    // Температура снаружи
+    lcd.setCursor(9, 0);
+    lcd.write(4);
+    lcd.print(temp_out);
+    lcd.write(223);
+    lcd.print("C  ");
+    // вторая строка
+    // День недели
+    lcd.setCursor(0, 1);
+    lcd.print(" ");
+    lcd.print(days[NTP.weekDay()]);
+    lcd.print("    ");
+    // Ветер
+    lcd.setCursor(9, 1);
+    lcd.write(6);
+    lcd.print(wind_s);
+    lcd.print("Km/h  ");
   }
+}
+//без иконок
+/* 
+void lcd_print() {
+  if (backlight_off == true) {
+    //lcd.setDisplay(false);
+    lcd.setBacklight(false);
+  } else {
+    //lcd.setDisplay(true);
+    lcd.setBacklight(true);
+  }
+  if (b.click()) {
+    if (backlight_off == false) {
+      flag = !flag;
+    }
+    backlight_off.start();
+    screen_show.start();
+  }
+  if (b.hold()) {
+    db[kk::alarm_bool] = !db[kk::alarm_bool];
+    db.update();
+    backlight_off.start();
+    screen_show.start();
+  }
+  // экран 1
+  if (screen_show == true && db[kk::screen_switch] == true) {
+    flag = !flag;
+    lcd.clear();
+  }
+  if (flag == true) {
+    // первая строка
+    lcd.home();
+    // Значек статуса будильника вкл/выкл
+    if (db[kk::alarm_bool] == true) lcd.print("A");
+    else lcd.print(" ");
+    // Время
+    if (NTP.hour() < 10) {
+      lcd.print("0");
+    }
+    lcd.print(NTP.hour());
+    lcd.print(":");
+    if (NTP.minute() < 10) {
+      lcd.print("0");
+    }
+    lcd.print(NTP.minute());
+    lcd.print("  ");
+    // Температура внутри
+    lcd.setCursor(9, 0);
+    lcd.print(" ");
+    lcd.print(temp_in);
+    lcd.print("°C  ");
+    // вторая строка
+    // Дата
+    lcd.setCursor(0, 1);
+    lcd.print(NTP.day());
+    lcd.print(".");
+    lcd.print(NTP.month());
+    lcd.print(".");
+    lcd.print(NTP.year() - 2000);
+    //lcd.setCursor(11, 1);
+    lcd.print("  ");
+    // Влажность внутри
+    lcd.setCursor(9, 1);
+    lcd.print(" ");
+    lcd.print(hum);
+    lcd.print("%");
+    lcd.print("   ");
+  } 
+  // Экран 2
+  if (flag == false) {
+    // первая строка
+    // Будильник (Время)
+    lcd.home();
+    lcd.print("A");
+    if (db[kk::alarm_hour] < 10) {
+      lcd.print("0");
+    }
+    lcd.print(db[kk::alarm_hour]);
+    lcd.print(":");
+    if (db[kk::alarm_min] < 10) {
+      lcd.print("0");
+    }
+    lcd.print(db[kk::alarm_min]);
+    lcd.print("  ");
+    // Температура снаружи
+    lcd.setCursor(9, 0);
+    lcd.print(" ");
+    lcd.print(temp_out);
+    lcd.print("°C  ");
+    // вторая строка
+    // День недели
+    lcd.setCursor(0, 1);
+    lcd.print(" ");
+    lcd.print(days[NTP.weekDay()]);
+    lcd.print("    ");
+    // Ветер
+    lcd.setCursor(9, 1);
+    lcd.print(" ");
+    lcd.print(wind_s);
+    lcd.print("Km/h  ");
+  }
+}
+*/
+void alarm_tick() {
   if ((db[kk::alarm_bool] == true) && (db[kk::alarm_hour] == NTP.hour()) && (db[kk::alarm_min] == NTP.minute())) {
   	if (alarm == false) {
       beeper = true;
@@ -483,11 +713,138 @@ void lcd_show() {
   }
 }
 
+void reminder_tick() {
+  if (db[kk::reminder_bool] == true) {
+    if ((db[kk::reminder_1_bool] == true) && (db[kk::reminder_1_hour] == NTP.hour()) && (db[kk::reminder_1_min] == NTP.minute()) && (NTP.second() < 5)) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      lcd.clear();
+      lcd.home();
+      lcd.setTextLoop(true);
+      lcd.print(db[kk::reminder_1_text]);
+      digitalWrite(BUZZER, HIGH);
+      delay(100);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+      if (db[kk::reminder_1_repeat_bool] == false) {
+        db[kk::reminder_1_bool] = false;
+        db.update();
+      }
+      delay(1000);
+      lcd.setTextLoop(false);
+      lcd.clear();
+      backlight_off.start();
+    }
+
+    if ((db[kk::reminder_2_bool] == true) && (db[kk::reminder_2_hour] == NTP.hour()) && (db[kk::reminder_2_min] == NTP.minute()) && (NTP.second() < 5)) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      lcd.clear();
+      lcd.home();
+      lcd.setTextLoop(true);
+      lcd.print(db[kk::reminder_2_text]);
+      digitalWrite(BUZZER, HIGH);
+      delay(100);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+      if (db[kk::reminder_2_repeat_bool] == false) {
+        db[kk::reminder_2_bool] = false;
+        db.update();
+      }
+      delay(1000);
+      lcd.setTextLoop(false);
+      lcd.clear();
+      backlight_off.start();
+    }
+
+    if ((db[kk::reminder_3_bool] == true) && (db[kk::reminder_3_hour] == NTP.hour()) && (db[kk::reminder_3_min] == NTP.minute()) && (NTP.second() < 5)) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      lcd.clear();
+      lcd.home();
+      lcd.setTextLoop(true);
+      lcd.print(db[kk::reminder_3_text]);
+      digitalWrite(BUZZER, HIGH);
+      delay(100);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+      if (db[kk::reminder_3_repeat_bool] == false) {
+        db[kk::reminder_3_bool] = false;
+        db.update();
+      }
+      delay(1000);
+      lcd.setTextLoop(false);
+      lcd.clear();
+      backlight_off.start();
+    }
+
+    if ((db[kk::reminder_4_bool] == true) && (db[kk::reminder_4_hour] == NTP.hour()) && (db[kk::reminder_4_min] == NTP.minute()) && (NTP.second() < 5)) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      lcd.clear();
+      lcd.home();
+      lcd.setTextLoop(true);
+      lcd.print(db[kk::reminder_4_text]);
+      digitalWrite(BUZZER, HIGH);
+      delay(100);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+      if (db[kk::reminder_4_repeat_bool] == false) {
+        db[kk::reminder_4_bool] = false;
+        db.update();
+      }
+      delay(1000);
+      lcd.setTextLoop(false);
+      lcd.clear();
+      backlight_off.start();
+    }
+
+    if ((db[kk::reminder_5_bool] == true) && (db[kk::reminder_5_hour] == NTP.hour()) && (db[kk::reminder_5_min] == NTP.minute()) && (NTP.second() < 5)) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      lcd.clear();
+      lcd.home();
+      lcd.setTextLoop(true);
+      lcd.print(db[kk::reminder_5_text]);
+      digitalWrite(BUZZER, HIGH);
+      delay(100);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+      if (db[kk::reminder_5_repeat_bool] == false) {
+        db[kk::reminder_5_bool] = false;
+        db.update();
+      }
+      delay(1000);
+      lcd.setTextLoop(false);
+      lcd.clear();
+      backlight_off.start();
+    }
+  }
+}
+
+void new_hour() {
+  if (db[kk::new_hour_screen_bool] == true || db[kk::new_hour_sound_bool] == true) {
+    if (db[kk::new_hour_screen_bool] == true) {
+      lcd.setBacklight(true);
+      //lcd.setDisplay(true);
+      backlight_off.start();
+    }
+    if (db[kk::new_hour_sound_bool] == true) {
+      digitalWrite(BUZZER, HIGH);
+      delay(50);
+      digitalWrite(BUZZER, LOW);
+      delay(100);
+    }
+  }
+}
+
 void weather_tick() {
   if ((NTP.minute() == 0) && (NTP.online() == true)) {
   	if (timeout == false) {
       weather_check();
-      updated = NTP.timeToString();
+      delay(100);
+      new_hour();
+      //updated = NTP.timeToString();
     	timeout = !timeout;
     }
   } else {
@@ -495,15 +852,52 @@ void weather_tick() {
   }
 }
 
+void one_start() {
+  if (localip == true) {
+    lcd.clear();
+    lcd.home(); 
+    lcd.print("Conected!");
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.localIP());
+    NTP.begin(db[kk::time_zone]);
+    delay(1500);
+    //updated = NTP.timeToString();
+    weather_check();
+    delay(1500);
+    lcd.clear();
+    start_one = false;
+  }
+  if (softip == true) {
+    lcd.clear();
+    lcd.home(); 
+    lcd.print("Error!");
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.softAPIP());
+    delay(3000);
+    lcd.clear();
+    start_one = false;
+  }
+}
+
+void lcd_show() {
+  b.tick();
+  // Будильник
+  if (beeper == true) beeper_active();
+  else lcd_print();
+  alarm_tick();
+  reminder_tick();
+  weather_tick();
+}
+
 void setup() {
-  Serial.begin(115200);
-  Serial.println();
+  Serial.begin(9600);
   #ifdef ESP32
     LittleFS.begin(true);
   #else
     LittleFS.begin();
   #endif
   db.begin();
+  //ПЗУ
   db.init(kk::wifi_ssid, "");
   db.init(kk::wifi_pass, "");
   db.init(kk::time_zone, 3);
@@ -514,6 +908,37 @@ void setup() {
   db.init(kk::alarm_min, 0);
   db.init(kk::info_show, false);
   db.init(kk::location, "");
+  db.init(kk::do_not_turn_off_screen, true);
+  db.init(kk::new_hour_screen_bool, false);
+  db.init(kk::new_hour_sound_bool, false);
+  db.init(kk::screen_switch, false);
+  db.init(kk::reminder_bool, false);
+  db.init(kk::reminder_1_bool, false);
+  db.init(kk::reminder_1_repeat_bool, false);
+  db.init(kk::reminder_1_text, "");
+  db.init(kk::reminder_1_hour, 0);
+  db.init(kk::reminder_1_min, 0);
+  db.init(kk::reminder_2_bool, false);
+  db.init(kk::reminder_2_repeat_bool, false);
+  db.init(kk::reminder_2_text, "");
+  db.init(kk::reminder_2_hour, 0);
+  db.init(kk::reminder_2_min, 0);
+  db.init(kk::reminder_3_bool, false);
+  db.init(kk::reminder_3_repeat_bool, false);
+  db.init(kk::reminder_3_text, "");
+  db.init(kk::reminder_3_hour, 0);
+  db.init(kk::reminder_3_min, 0);
+  db.init(kk::reminder_4_bool, false);
+  db.init(kk::reminder_4_repeat_bool, false);
+  db.init(kk::reminder_4_text, "");
+  db.init(kk::reminder_4_hour, 0);
+  db.init(kk::reminder_4_min, 0);
+  db.init(kk::reminder_5_bool, false);
+  db.init(kk::reminder_5_repeat_bool, false);
+  db.init(kk::reminder_5_text, "");
+  db.init(kk::reminder_5_hour, 0);
+  db.init(kk::reminder_5_min, 0);
+  //ОЗУ
   db_ram.init(kk::wifi_ssid, "");
   db_ram.init(kk::wifi_pass, "");
   db_ram.init(kk::dynamic_flag, false);
@@ -522,47 +947,34 @@ void setup() {
   db_ram.init(kk::search_status, false);
   db_ram.init(kk::city_index, 0);
   db_ram.init(kk::city_list, "");
+  WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
   WiFiConnector.onConnect([]() {
       Serial.print("Connected! ");
       Serial.println(WiFi.localIP());
-      lcd.clear();
-      lcd.setCursor(0, 0); 
-      lcd.print(F("Conected!"));
-      lcd.setCursor(0, 1);
-      lcd.print(WiFi.localIP());
-      NTP.begin(db[kk::time_zone]);
-      delay(3000);
-      weather_check();
-      updated = NTP.timeToString();
-      lcd.clear();
+      localip = true;
   });
   WiFiConnector.onError([]() {
       Serial.print("Error! Start AP ");
       Serial.println(WiFi.softAPIP());
-      lcd.clear();
-      lcd.setCursor(0, 0); 
-      lcd.print(F("Error!"));
-      lcd.setCursor(0, 1);
-      lcd.print(WiFi.softAPIP());
-      delay(3000);
-      lcd.clear();
+      softip = true;
   });
-  WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
   sett.begin();
   sett.onBuild(build);
   sett.onUpdate(update);
-  //NTP.begin(db[kk::time_zone]);
   delay(100);
   AHT.begin();
   pinMode(BUZZER, OUTPUT);
-  lcd.begin(COLUMS, ROWS, LCD_5x8DOTS, 4, 5, 400000, 250);
-  //lcd.createChar(0, drop);
+  Wire.begin();
+  lcd.begin();
+
+  lcd.createChar(0, drop);
   lcd.createChar(1, bell);
   lcd.createChar(2, drop);
   lcd.createChar(3, home);
   lcd.createChar(4, window);
   lcd.createChar(5, watch);
   lcd.createChar(6, wind);
+
   backlight_off.setMode(GTMode::Overflow);
   backlight_off.setTime(15000);
   backlight_off.start();
@@ -573,10 +985,15 @@ void setup() {
   one_sec.setTime(1000);
 }
 
-void loop() {  
+void loop() {
+  //Serial.println("Start loop");
   WiFiConnector.tick();
-  sett.tick();
-  NTP.tick();
-  weather_tick();
-  lcd_show();
+  if (start_one == true) {
+    one_start();
+  } else {
+    sett.tick();
+    NTP.tick();
+    lcd_show();
+  }
+  delay(10);
 }
