@@ -35,9 +35,10 @@ GTimer<millis> screen_show;
 GTimer<millis> one_sec;
 
 bool timeout, alarm, pik, beeper, flag = false, start_one = true, localip = false, softip = false;
-float temperature, windspeed;
-int hum, temp_in, temp_out, wind_s, i;
+float hum, temp_in, temp_out, wind_s;
+int i;
 String days[] = {"Err", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+//String days[] = {"Err", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
 int8_t count = 0;
 //String updated;
 
@@ -152,20 +153,21 @@ String index_city() {
   return result;
 }
 
+void aht_check() {
+  temp_in = round(AHT.readTemperature() * 10) / 10;
+  hum = round(AHT.readHumidity() * 10) / 10;
+}
+
 void weather_check() {
   if ((db[kk::latitude] != 0) && (db[kk::longitude] != 0)) {
     db_ram[kk::search_status] = false;
     deserializeJson(json, get_weather(db[kk::latitude], db[kk::longitude]));
-    temperature = json["current_weather"]["temperature"];
-    windspeed = json["current_weather"]["windspeed"];
-    hum = round(AHT.readHumidity());
-    temp_in = round(AHT.readTemperature());
-    temp_out = round(temperature);
-    wind_s = round(windspeed);
-    Serial.println("Updated weather!");
+    temp_out = json["current_weather"]["temperature"];
+    wind_s = json["current_weather"]["windspeed"];
+    Serial.println("Updated weather");
     Serial.println("");
   } else {
-    Serial.println("Error! Latitude and Longitude are 0");
+    Serial.println("Weather update error");
     Serial.println("");
   }
 }
@@ -366,10 +368,10 @@ void update(sets::Updater& upd) {
     upd.update("time"_h, NTP.timeToString());
     upd.update("date"_h, NTP.dateToString());
     upd.update("day"_h, days[NTP.weekDay()]);
-    upd.update("temperature_inside"_h, round(AHT.readTemperature() * 10) / 10);
-    upd.update("humidity_inside"_h, round(AHT.readHumidity() * 10) / 10);
-    upd.update("temperature_outside"_h, temperature);
-    upd.update("windspeed"_h, windspeed);
+    upd.update("temperature_inside"_h, temp_in);
+    upd.update("humidity_inside"_h, hum);
+    upd.update("temperature_outside"_h, temp_out);
+    upd.update("windspeed"_h, wind_s);
     //upd.update("updated"_h, updated);
   }
 }
@@ -446,6 +448,7 @@ void beeper_active() {
     beeper = false;
     count = 0;
     one_sec.stop();
+    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -455,6 +458,7 @@ void beeper_active() {
     beeper = false;
     count = 0;
     one_sec.stop();
+    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -491,6 +495,7 @@ void beeper_active() {
     count = 0;
     beeper = false;
     one_sec.stop();
+    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -498,32 +503,35 @@ void beeper_active() {
 }
 
 void lcd_print() {
-  if (backlight_off == true) {
+  if (backlight_off == true && db[kk::do_not_turn_off_screen] == false) {
     //lcd.setDisplay(false);
-    if (db[kk::do_not_turn_off_screen] == false) lcd.setBacklight(false);
-  } else {
-    //lcd.setDisplay(true);
-    lcd.setBacklight(true);
+    lcd.setBacklight(false);
   }
   if (b.click()) {
     if (backlight_off == false) {
       flag = !flag;
     }
+    lcd.setBacklight(true);
     backlight_off.start();
     screen_show.start();
   }
   if (b.hold()) {
     db[kk::alarm_bool] = !db[kk::alarm_bool];
     db.update();
+    lcd.setBacklight(true);
     backlight_off.start();
     screen_show.start();
   }
-  // экран 1
-  if (screen_show == true && db[kk::screen_switch] == true) {
-    flag = !flag;
-    lcd.clear();
+  // переключение экранов и считывание температуры и влажности
+  if (screen_show == true) {
+    aht_check(); // раз в 5 сек
+    if (db[kk::screen_switch] == true) {
+      flag = !flag;
+      lcd.clear();
+    }
   }
-  if (flag == true) {
+  // экран 1
+  if (flag == false) {
     // первая строка
     lcd.home();
     // Значек статуса будильника вкл/выкл
@@ -543,7 +551,7 @@ void lcd_print() {
     // Температура внутри
     lcd.setCursor(9, 0);
     lcd.write(3);
-    lcd.print(temp_in);
+    lcd.print(temp_in, 1);
     lcd.write(223);
     lcd.print("C  ");
     // вторая строка
@@ -559,12 +567,12 @@ void lcd_print() {
     // Влажность внутри
     lcd.setCursor(9, 1);
     lcd.write(2);
-    lcd.print(hum);
+    lcd.print(hum, 1);
     lcd.print("%");
     lcd.print("   ");
   } 
   // Экран 2
-  if (flag == false) {
+  if (flag == true) {
     // первая строка
     // Будильник (Время)
     lcd.home();
@@ -582,20 +590,23 @@ void lcd_print() {
     // Температура снаружи
     lcd.setCursor(9, 0);
     lcd.write(4);
-    lcd.print(temp_out);
+    lcd.print(temp_out, 1);
     lcd.write(223);
     lcd.print("C  ");
     // вторая строка
     // День недели
     lcd.setCursor(0, 1);
-    lcd.print(" ");
+    lcd.print(" "); //
     lcd.print(days[NTP.weekDay()]);
-    lcd.print("    ");
+    lcd.print("     "); //
+    //lcd.print(" (");
+    //lcd.print(NTP.weekDay());
+    //lcd.print(")  ");
     // Ветер
     lcd.setCursor(9, 1);
     lcd.write(6);
-    lcd.print(wind_s);
-    lcd.print("Km/h  ");
+    lcd.print(wind_s, 1);
+    lcd.print("KmH  ");
   }
 }
 //без иконок
@@ -612,21 +623,27 @@ void lcd_print() {
     if (backlight_off == false) {
       flag = !flag;
     }
+    lcd.setBacklight(true);
     backlight_off.start();
     screen_show.start();
   }
   if (b.hold()) {
     db[kk::alarm_bool] = !db[kk::alarm_bool];
     db.update();
+    lcd.setBacklight(true);
     backlight_off.start();
     screen_show.start();
   }
-  // экран 1
-  if (screen_show == true && db[kk::screen_switch] == true) {
-    flag = !flag;
-    lcd.clear();
+  // переключение экранов и считывание температуры и влажности
+  if (screen_show == true) {
+    aht_check(); // раз в 5 сек
+    if (db[kk::screen_switch] == true) {
+      flag = !flag;
+      lcd.clear();
+    }
   }
-  if (flag == true) {
+  // экран 1
+  if (flag == false) {
     // первая строка
     lcd.home();
     // Значек статуса будильника вкл/выкл
@@ -646,7 +663,7 @@ void lcd_print() {
     // Температура внутри
     lcd.setCursor(9, 0);
     lcd.print(" ");
-    lcd.print(temp_in);
+    lcd.print(temp_in, 1);
     lcd.print("°C  ");
     // вторая строка
     // Дата
@@ -661,12 +678,12 @@ void lcd_print() {
     // Влажность внутри
     lcd.setCursor(9, 1);
     lcd.print(" ");
-    lcd.print(hum);
+    lcd.print(hum, 1);
     lcd.print("%");
     lcd.print("   ");
   } 
   // Экран 2
-  if (flag == false) {
+  if (flag == true) {
     // первая строка
     // Будильник (Время)
     lcd.home();
@@ -684,19 +701,19 @@ void lcd_print() {
     // Температура снаружи
     lcd.setCursor(9, 0);
     lcd.print(" ");
-    lcd.print(temp_out);
+    lcd.print(temp_out, 1);
     lcd.print("°C  ");
     // вторая строка
     // День недели
     lcd.setCursor(0, 1);
     lcd.print(" ");
     lcd.print(days[NTP.weekDay()]);
-    lcd.print("    ");
+    lcd.print("     ");
     // Ветер
     lcd.setCursor(9, 1);
     lcd.print(" ");
-    lcd.print(wind_s);
-    lcd.print("Km/h  ");
+    lcd.print(wind_s, 1);
+    lcd.print("KmH  ");
   }
 }
 */
@@ -715,7 +732,7 @@ void alarm_tick() {
 
 void reminder_tick() {
   if (db[kk::reminder_bool] == true) {
-    if ((db[kk::reminder_1_bool] == true) && (db[kk::reminder_1_hour] == NTP.hour()) && (db[kk::reminder_1_min] == NTP.minute()) && (NTP.second() < 5)) {
+    if ((db[kk::reminder_1_bool] == true) && (db[kk::reminder_1_hour] == NTP.hour()) && (db[kk::reminder_1_min] == NTP.minute()) && (NTP.second() < 2)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -731,12 +748,13 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
+      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_2_bool] == true) && (db[kk::reminder_2_hour] == NTP.hour()) && (db[kk::reminder_2_min] == NTP.minute()) && (NTP.second() < 5)) {
+    if ((db[kk::reminder_2_bool] == true) && (db[kk::reminder_2_hour] == NTP.hour()) && (db[kk::reminder_2_min] == NTP.minute()) && (NTP.second() < 2)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -752,12 +770,13 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
+      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_3_bool] == true) && (db[kk::reminder_3_hour] == NTP.hour()) && (db[kk::reminder_3_min] == NTP.minute()) && (NTP.second() < 5)) {
+    if ((db[kk::reminder_3_bool] == true) && (db[kk::reminder_3_hour] == NTP.hour()) && (db[kk::reminder_3_min] == NTP.minute()) && (NTP.second() < 2)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -773,12 +792,13 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
+      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_4_bool] == true) && (db[kk::reminder_4_hour] == NTP.hour()) && (db[kk::reminder_4_min] == NTP.minute()) && (NTP.second() < 5)) {
+    if ((db[kk::reminder_4_bool] == true) && (db[kk::reminder_4_hour] == NTP.hour()) && (db[kk::reminder_4_min] == NTP.minute()) && (NTP.second() < 2)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -794,12 +814,13 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
+      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_5_bool] == true) && (db[kk::reminder_5_hour] == NTP.hour()) && (db[kk::reminder_5_min] == NTP.minute()) && (NTP.second() < 5)) {
+    if ((db[kk::reminder_5_bool] == true) && (db[kk::reminder_5_hour] == NTP.hour()) && (db[kk::reminder_5_min] == NTP.minute()) && (NTP.second() < 2)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -815,6 +836,7 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
+      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       lcd.clear();
       backlight_off.start();
@@ -827,6 +849,7 @@ void new_hour() {
     if (db[kk::new_hour_screen_bool] == true) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
+      lcd.setBacklight(true);
       backlight_off.start();
     }
     if (db[kk::new_hour_sound_bool] == true) {
