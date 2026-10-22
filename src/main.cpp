@@ -42,7 +42,7 @@ String days[] = {"Err", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 int8_t count = 0;
 
 int8_t t_hour, t_min, t_alarm_hour, t_alarm_min, t_day, t_temp, t_hum, t_temp_out, t_wind;
-bool t_alarm_bool, t_ico;
+bool t_alarm_bool, t_ico, t_dntofs;
 //String updated;
 
 DB_KEYS(
@@ -185,6 +185,24 @@ void scan_wifi() {
   }
 }
 
+void t_clear() {
+  t_hour = NTP.hour() + 1;
+  t_min = NTP.minute() + 1;
+  u_int8_t a, b;
+  a = db[kk::alarm_hour];
+  b = db[kk::alarm_min];
+  t_alarm_hour = a + 1;
+  t_alarm_min = b + 1;
+  t_day = 0;
+  t_temp = 0;
+  t_hum = 0;
+  t_temp_out = 0;
+  t_wind = 0;
+  t_alarm_bool = !db[kk::alarm_bool];
+  t_dntofs = !db[kk::do_not_turn_off_screen];
+  t_ico = false;
+}
+
 void build(sets::Builder& b) {
   if (b.beginGroup("Wi-Fi")) {
     String SSIDS = db_ram[kk::ssids];
@@ -225,8 +243,18 @@ void build(sets::Builder& b) {
   
   if (b.beginGroup("Screen and Time")) {
     b.Switch(kk::do_not_turn_off_screen, "Do not turn off the screen");
+    if (db[kk::do_not_turn_off_screen] != t_dntofs) {
+      if (db[kk::do_not_turn_off_screen]) {
+        lcd.setBacklight(true);
+        lcd.clear();
+        t_clear();
+        backlight_off.start();
+        screen_show.start();
+      }
+      t_dntofs = db[kk::do_not_turn_off_screen];
+    }
     b.reload();
-    if (db[kk::do_not_turn_off_screen] == false) {
+    if (!db[kk::do_not_turn_off_screen]) {
       b.Switch(kk::new_hour_screen_bool, "Screen lights up at the start of a new hour");
     }
     b.Switch(kk::new_hour_sound_bool, "Emit a sound at the start of each new hour");
@@ -500,23 +528,6 @@ void beeper_active() {
     digitalWrite(BUZZER, LOW);
     delay(10);
   }
-}
-
-void t_clear() {
-  t_hour = NTP.hour() + 1;
-  t_min = NTP.minute() + 1;
-  u_int8_t a, b;
-  a = db[kk::alarm_hour];
-  b = db[kk::alarm_min];
-  t_alarm_hour = a + 1;
-  t_alarm_min = b + 1;
-  t_day = 0;
-  t_temp = 0;
-  t_hum = 0;
-  t_temp_out = 0;
-  t_wind = 0;
-  t_alarm_bool = !db[kk::alarm_bool];
-  t_ico = false;
 }
 
 void lcd_show() {
@@ -810,6 +821,7 @@ void new_hour() {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       backlight_off.start();
+      screen_show.start();
     }
     if (db[kk::new_hour_sound_bool] == true) {
       digitalWrite(BUZZER, HIGH);
