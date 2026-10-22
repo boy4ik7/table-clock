@@ -34,12 +34,15 @@ GTimer<millis> backlight_off;
 GTimer<millis> screen_show;
 GTimer<millis> one_sec;
 
-bool timeout, alarm, pik, beeper, flag = false, start_one = true, localip = false, softip = false;
+bool timeout, alarm, pik, beeper, flag = true, start_one = true, localip = false, softip = false;
 float hum, temp_in, temp_out, wind_s;
 int i;
 String days[] = {"Err", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 //String days[] = {"Err", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
 int8_t count = 0;
+
+int8_t t_hour, t_min, t_alarm_hour, t_alarm_min, t_day, t_temp, t_hum, t_temp_out, t_wind;
+bool t_alarm_bool, t_ico;
 //String updated;
 
 DB_KEYS(
@@ -60,6 +63,7 @@ DB_KEYS(
     search_status,
     city_index,
     city_list,
+    number_day,
     do_not_turn_off_screen,
     new_hour_screen_bool,
     new_hour_sound_bool,
@@ -162,8 +166,8 @@ void weather_check() {
   if ((db[kk::latitude] != 0) && (db[kk::longitude] != 0)) {
     db_ram[kk::search_status] = false;
     deserializeJson(json, get_weather(db[kk::latitude], db[kk::longitude]));
-    temp_out = json["current_weather"]["temperature"];
-    wind_s = json["current_weather"]["windspeed"];
+    temp_out = round(json["current_weather"]["temperature"].as<float>() * 10) / 10;
+    wind_s = round(json["current_weather"]["windspeed"].as<float>() * 10) / 10;
     Serial.println("Updated weather");
     Serial.println("");
   } else {
@@ -227,6 +231,7 @@ void build(sets::Builder& b) {
     }
     b.Switch(kk::new_hour_sound_bool, "Emit a sound at the start of each new hour");
     b.Switch(kk::screen_switch, "Automatic screen switching");
+    b.Switch(kk::number_day, "Show the day of the week number");
     db.update();
     b.Select(kk::time_zone, "Time zone:", " UTC+0; UTC+1; UTC+2; UTC+3; UTC+4; UTC+5; UTC+6;");
     if (b.Button("Update time")) {
@@ -502,7 +507,24 @@ void beeper_active() {
   }
 }
 
-void lcd_print() {
+void t_clear() {
+  t_hour = NTP.hour() + 1;
+  t_min = NTP.minute() + 1;
+  u_int8_t a, b;
+  a = db[kk::alarm_hour];
+  b = db[kk::alarm_min];
+  t_alarm_hour = a + 1;
+  t_alarm_min = b + 1;
+  t_day = 0;
+  t_temp = 0;
+  t_hum = 0;
+  t_temp_out = 0;
+  t_wind = 0;
+  t_alarm_bool = !db[kk::alarm_bool];
+  t_ico = false;
+}
+
+void lcd_show() {
   if (backlight_off == true && db[kk::do_not_turn_off_screen] == false) {
     //lcd.setDisplay(false);
     lcd.setBacklight(false);
@@ -510,6 +532,8 @@ void lcd_print() {
   if (b.click()) {
     if (backlight_off == false) {
       flag = !flag;
+      t_clear();
+      lcd.clear();
     }
     lcd.setBacklight(true);
     backlight_off.start();
@@ -523,206 +547,145 @@ void lcd_print() {
     screen_show.start();
   }
   // переключение экранов и считывание температуры и влажности
-  if (screen_show == true) {
-    aht_check(); // раз в 5 сек
-    if (db[kk::screen_switch] == true) {
-      flag = !flag;
-      lcd.clear();
-    }
+  if (one_sec) aht_check(); // раз в 1 сек
+  if (screen_show == true && db[kk::screen_switch] == true) {
+    flag = !flag;
+    t_clear();
+    lcd.clear();
   }
   // экран 1
-  if (flag == false) {
+  if (flag) {
+    // иконки
+    if (!t_ico) {
+      if (temp_in < 0) lcd.setCursor(9, 0);
+      else lcd.setCursor(9, 0);
+      lcd.write(3);
+      lcd.setCursor(14, 0);
+      lcd.write(223);
+      lcd.print("C");
+      lcd.setCursor(9, 1);
+      lcd.write(2);
+      if (hum >= 100) lcd.setCursor(15, 1);
+      else lcd.setCursor(14, 1);
+      lcd.print("%");
+      t_ico =!t_ico;
+    }
     // первая строка
-    lcd.home();
     // Значек статуса будильника вкл/выкл
-    if (db[kk::alarm_bool] == true) lcd.write(1);
-    else lcd.print(" ");
+    if (db[kk::alarm_bool] != t_alarm_bool) {
+      lcd.home();
+      if (db[kk::alarm_bool] == true) lcd.write(1);
+      else lcd.print(" ");
+      t_alarm_bool = db[kk::alarm_bool];
+    }
     // Время
-    if (NTP.hour() < 10) {
-      lcd.print("0");
+    if (NTP.hour() != t_hour) {
+      lcd.setCursor(1, 0);
+      if (NTP.hour() < 10) lcd.print("0");
+      lcd.print(NTP.hour());
+      lcd.print(":");
+      t_hour = NTP.hour();
     }
-    lcd.print(NTP.hour());
-    lcd.print(":");
-    if (NTP.minute() < 10) {
-      lcd.print("0");
+    if (NTP.minute() != t_min) {
+      lcd.setCursor(4, 0);
+      if (NTP.minute() < 10) lcd.print("0");
+      lcd.print(NTP.minute());
+      t_min = NTP.minute();
     }
-    lcd.print(NTP.minute());
-    lcd.print("  ");
     // Температура внутри
-    lcd.setCursor(9, 0);
-    lcd.write(3);
-    lcd.print(temp_in, 1);
-    lcd.write(223);
-    lcd.print("C  ");
+    if (temp_in != t_temp) {
+      lcd.setCursor(10, 0);
+      lcd.print(temp_in, 1);
+      t_temp = temp_in;
+    }
     // вторая строка
     // Дата
-    lcd.setCursor(0, 1);
-    lcd.print(NTP.day());
-    lcd.print(".");
-    lcd.print(NTP.month());
-    lcd.print(".");
-    lcd.print(NTP.year() - 2000);
-    //lcd.setCursor(11, 1);
-    lcd.print("  ");
-    // Влажность внутри
-    lcd.setCursor(9, 1);
-    lcd.write(2);
-    lcd.print(hum, 1);
-    lcd.print("%");
-    lcd.print("   ");
+    if (NTP.day() != t_day) {
+      lcd.setCursor(0, 1);
+      lcd.print(NTP.day());
+      lcd.print(".");
+      lcd.print(NTP.month());
+      lcd.print(".");
+      lcd.print(NTP.year() - 2000);
+      t_day = NTP.day();
+    }
+    // Влажность внутри    
+    if (t_hum != hum) {
+      lcd.setCursor(10, 1);
+      lcd.print(hum, 1);
+      t_hum = hum;
+    }
   } 
   // Экран 2
-  if (flag == true) {
+  if (!flag) {
+    // иконки
+    if (!t_ico) {
+      lcd.home();
+      lcd.write(5);
+      lcd.setCursor(3, 0);
+      lcd.print(":");
+      if (temp_out < 0) lcd.setCursor(8, 0);
+      else lcd.setCursor(9, 0);
+      lcd.write(4);
+      lcd.setCursor(14, 0);
+      lcd.write(223);
+      lcd.print("C");
+      if (wind_s > 10) lcd.setCursor(8, 1);
+      else lcd.setCursor(9, 1);
+      lcd.write(6);
+      lcd.setCursor(13, 1);
+      lcd.print("KmH  ");
+      t_ico = !t_ico;
+    }
     // первая строка
     // Будильник (Время)
-    lcd.home();
-    lcd.write(5);
-    if (db[kk::alarm_hour] < 10) {
-      lcd.print("0");
+    if (db[kk::alarm_hour] != t_alarm_hour) {
+      lcd.setCursor(1, 0);
+      if (db[kk::alarm_hour] < 10) lcd.print("0");
+      lcd.print(db[kk::alarm_hour]);
+      t_alarm_hour = db[kk::alarm_hour];
     }
-    lcd.print(db[kk::alarm_hour]);
-    lcd.print(":");
-    if (db[kk::alarm_min] < 10) {
-      lcd.print("0");
+    if (db[kk::alarm_min] != t_alarm_min) {
+      lcd.setCursor(4, 0);
+      if (db[kk::alarm_min] < 10) lcd.print("0");
+      lcd.print(db[kk::alarm_min]);
+      t_alarm_min = db[kk::alarm_min];
     }
-    lcd.print(db[kk::alarm_min]);
-    lcd.print("  ");
     // Температура снаружи
-    lcd.setCursor(9, 0);
-    lcd.write(4);
-    lcd.print(temp_out, 1);
-    lcd.write(223);
-    lcd.print("C  ");
+    if (t_temp_out != temp_out) {
+      lcd.setCursor(10, 0);
+      lcd.print(temp_out, 1);
+      t_temp_out = temp_out;
+    }
     // вторая строка
     // День недели
-    lcd.setCursor(0, 1);
-    lcd.print(" "); //
-    lcd.print(days[NTP.weekDay()]);
-    lcd.print("     "); //
-    //lcd.print(" (");
-    //lcd.print(NTP.weekDay());
-    //lcd.print(")  ");
+    if (NTP.day() != t_day) {
+      lcd.setCursor(0, 1);
+      lcd.print(days[NTP.weekDay()]);
+      if (db[kk::number_day]) {
+        lcd.setCursor(4, 1);
+        lcd.print("(");
+        lcd.print(NTP.weekDay());
+        lcd.print(")  ");
+      }
+      t_day = NTP.day();
+    }
     // Ветер
-    lcd.setCursor(9, 1);
-    lcd.write(6);
-    lcd.print(wind_s, 1);
-    lcd.print("KmH  ");
+    if (wind_s != t_wind) {
+      if (wind_s > 10) lcd.setCursor(9, 1);
+      else lcd.setCursor(10, 1);
+      lcd.print(wind_s, 1);
+      t_wind = wind_s;
+    }
   }
 }
-//без иконок
-/* 
-void lcd_print() {
-  if (backlight_off == true) {
-    //lcd.setDisplay(false);
-    lcd.setBacklight(false);
-  } else {
-    //lcd.setDisplay(true);
-    lcd.setBacklight(true);
-  }
-  if (b.click()) {
-    if (backlight_off == false) {
-      flag = !flag;
-    }
-    lcd.setBacklight(true);
-    backlight_off.start();
-    screen_show.start();
-  }
-  if (b.hold()) {
-    db[kk::alarm_bool] = !db[kk::alarm_bool];
-    db.update();
-    lcd.setBacklight(true);
-    backlight_off.start();
-    screen_show.start();
-  }
-  // переключение экранов и считывание температуры и влажности
-  if (screen_show == true) {
-    aht_check(); // раз в 5 сек
-    if (db[kk::screen_switch] == true) {
-      flag = !flag;
-      lcd.clear();
-    }
-  }
-  // экран 1
-  if (flag == false) {
-    // первая строка
-    lcd.home();
-    // Значек статуса будильника вкл/выкл
-    if (db[kk::alarm_bool] == true) lcd.print("A");
-    else lcd.print(" ");
-    // Время
-    if (NTP.hour() < 10) {
-      lcd.print("0");
-    }
-    lcd.print(NTP.hour());
-    lcd.print(":");
-    if (NTP.minute() < 10) {
-      lcd.print("0");
-    }
-    lcd.print(NTP.minute());
-    lcd.print("  ");
-    // Температура внутри
-    lcd.setCursor(9, 0);
-    lcd.print(" ");
-    lcd.print(temp_in, 1);
-    lcd.print("°C  ");
-    // вторая строка
-    // Дата
-    lcd.setCursor(0, 1);
-    lcd.print(NTP.day());
-    lcd.print(".");
-    lcd.print(NTP.month());
-    lcd.print(".");
-    lcd.print(NTP.year() - 2000);
-    //lcd.setCursor(11, 1);
-    lcd.print("  ");
-    // Влажность внутри
-    lcd.setCursor(9, 1);
-    lcd.print(" ");
-    lcd.print(hum, 1);
-    lcd.print("%");
-    lcd.print("   ");
-  } 
-  // Экран 2
-  if (flag == true) {
-    // первая строка
-    // Будильник (Время)
-    lcd.home();
-    lcd.print("A");
-    if (db[kk::alarm_hour] < 10) {
-      lcd.print("0");
-    }
-    lcd.print(db[kk::alarm_hour]);
-    lcd.print(":");
-    if (db[kk::alarm_min] < 10) {
-      lcd.print("0");
-    }
-    lcd.print(db[kk::alarm_min]);
-    lcd.print("  ");
-    // Температура снаружи
-    lcd.setCursor(9, 0);
-    lcd.print(" ");
-    lcd.print(temp_out, 1);
-    lcd.print("°C  ");
-    // вторая строка
-    // День недели
-    lcd.setCursor(0, 1);
-    lcd.print(" ");
-    lcd.print(days[NTP.weekDay()]);
-    lcd.print("     ");
-    // Ветер
-    lcd.setCursor(9, 1);
-    lcd.print(" ");
-    lcd.print(wind_s, 1);
-    lcd.print("KmH  ");
-  }
-}
-*/
+
 void alarm_tick() {
   if ((db[kk::alarm_bool] == true) && (db[kk::alarm_hour] == NTP.hour()) && (db[kk::alarm_min] == NTP.minute())) {
   	if (alarm == false) {
       beeper = true;
       lcd.clear();
-      one_sec.start();
+      t_clear();
     	alarm = !alarm;
     }
   } else {
@@ -732,7 +695,7 @@ void alarm_tick() {
 
 void reminder_tick() {
   if (db[kk::reminder_bool] == true) {
-    if ((db[kk::reminder_1_bool] == true) && (db[kk::reminder_1_hour] == NTP.hour()) && (db[kk::reminder_1_min] == NTP.minute()) && (NTP.second() < 2)) {
+    if ((db[kk::reminder_1_bool] == true) && (db[kk::reminder_1_hour] == NTP.hour()) && (db[kk::reminder_1_min] == NTP.minute()) && (NTP.second() < 1)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -750,11 +713,12 @@ void reminder_tick() {
       delay(1000);
       lcd.setBacklight(true);
       lcd.setTextLoop(false);
+      t_clear();
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_2_bool] == true) && (db[kk::reminder_2_hour] == NTP.hour()) && (db[kk::reminder_2_min] == NTP.minute()) && (NTP.second() < 2)) {
+    if ((db[kk::reminder_2_bool] == true) && (db[kk::reminder_2_hour] == NTP.hour()) && (db[kk::reminder_2_min] == NTP.minute()) && (NTP.second() < 1)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -772,11 +736,12 @@ void reminder_tick() {
       delay(1000);
       lcd.setBacklight(true);
       lcd.setTextLoop(false);
+      t_clear();
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_3_bool] == true) && (db[kk::reminder_3_hour] == NTP.hour()) && (db[kk::reminder_3_min] == NTP.minute()) && (NTP.second() < 2)) {
+    if ((db[kk::reminder_3_bool] == true) && (db[kk::reminder_3_hour] == NTP.hour()) && (db[kk::reminder_3_min] == NTP.minute()) && (NTP.second() < 1)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -794,11 +759,12 @@ void reminder_tick() {
       delay(1000);
       lcd.setBacklight(true);
       lcd.setTextLoop(false);
+      t_clear();
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_4_bool] == true) && (db[kk::reminder_4_hour] == NTP.hour()) && (db[kk::reminder_4_min] == NTP.minute()) && (NTP.second() < 2)) {
+    if ((db[kk::reminder_4_bool] == true) && (db[kk::reminder_4_hour] == NTP.hour()) && (db[kk::reminder_4_min] == NTP.minute()) && (NTP.second() < 1)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -816,11 +782,12 @@ void reminder_tick() {
       delay(1000);
       lcd.setBacklight(true);
       lcd.setTextLoop(false);
+      t_clear();
       lcd.clear();
       backlight_off.start();
     }
 
-    if ((db[kk::reminder_5_bool] == true) && (db[kk::reminder_5_hour] == NTP.hour()) && (db[kk::reminder_5_min] == NTP.minute()) && (NTP.second() < 2)) {
+    if ((db[kk::reminder_5_bool] == true) && (db[kk::reminder_5_hour] == NTP.hour()) && (db[kk::reminder_5_min] == NTP.minute()) && (NTP.second() < 1)) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
       lcd.clear();
@@ -838,6 +805,7 @@ void reminder_tick() {
       delay(1000);
       lcd.setBacklight(true);
       lcd.setTextLoop(false);
+      t_clear();
       lcd.clear();
       backlight_off.start();
     }
@@ -867,6 +835,7 @@ void weather_tick() {
       weather_check();
       delay(100);
       new_hour();
+      t_clear();
       //updated = NTP.timeToString();
     	timeout = !timeout;
     }
@@ -900,16 +869,7 @@ void one_start() {
     lcd.clear();
     start_one = false;
   }
-}
-
-void lcd_show() {
-  b.tick();
-  // Будильник
-  if (beeper == true) beeper_active();
-  else lcd_print();
-  alarm_tick();
-  reminder_tick();
-  weather_tick();
+  t_clear();
 }
 
 void setup() {
@@ -935,6 +895,7 @@ void setup() {
   db.init(kk::new_hour_screen_bool, false);
   db.init(kk::new_hour_sound_bool, false);
   db.init(kk::screen_switch, false);
+  db.init(kk::number_day, false);
   db.init(kk::reminder_bool, false);
   db.init(kk::reminder_1_bool, false);
   db.init(kk::reminder_1_repeat_bool, false);
@@ -1006,6 +967,7 @@ void setup() {
   screen_show.start();
   one_sec.setMode(GTMode::Interval);
   one_sec.setTime(1000);
+  one_sec.start();
 }
 
 void loop() {
@@ -1016,7 +978,13 @@ void loop() {
   } else {
     sett.tick();
     NTP.tick();
-    lcd_show();
+    b.tick();
+    //lcd_show();
+    if (beeper == true) beeper_active();
+    else lcd_show();
+    alarm_tick();
+    reminder_tick();
+    weather_tick();
   }
   delay(10);
 }
