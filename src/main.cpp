@@ -366,6 +366,7 @@ void build(sets::Builder& b) {
     b.endGroup();
   }
   b.Link("GitHub", "https://github.com/boy4ik7/table-clock");
+  b.Label("Version:", "1.2.1");
 }
 
 void update(sets::Updater& upd) {
@@ -453,7 +454,6 @@ void beeper_active() {
     beeper = false;
     count = 0;
     one_sec.stop();
-    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -463,7 +463,6 @@ void beeper_active() {
     beeper = false;
     count = 0;
     one_sec.stop();
-    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -481,26 +480,22 @@ void beeper_active() {
   if (one_sec == true) {
     pik = !pik;
     count += 1;
+    backlight_off.start();
   }
   if (pik == true) {
-    lcd.setBacklight(true);
-    //lcd.setDisplay(true);
     digitalWrite(BUZZER, HIGH);
-    lcd.setCursor(6, 1);
-    lcd.print("0w0");
+    lcd.setCursor(5, 1);
+    lcd.print(" Alarm ");
   } else {
-    if (db[kk::do_not_turn_off_screen] == false) lcd.setBacklight(false);
-    //lcd.setDisplay(false);
     digitalWrite(BUZZER, LOW);
-    lcd.setCursor(6, 1);
-    lcd.print("-w-");
+    lcd.setCursor(5, 1);
+    lcd.print("Wake up");
   }
   if (count > 60) {
     lcd.clear();
     count = 0;
     beeper = false;
     one_sec.stop();
-    lcd.setBacklight(true);
     backlight_off.start();
     digitalWrite(BUZZER, LOW);
     delay(10);
@@ -525,24 +520,25 @@ void t_clear() {
 }
 
 void lcd_show() {
-  if (backlight_off == true && db[kk::do_not_turn_off_screen] == false) {
+  if (backlight_off && db[kk::do_not_turn_off_screen] == false) {
     //lcd.setDisplay(false);
+    lcd.clear();
     lcd.setBacklight(false);
   }
   if (b.click()) {
-    if (backlight_off == false) {
+    if (lcd.isBacklight()) {
       flag = !flag;
-      t_clear();
       lcd.clear();
-    }
-    lcd.setBacklight(true);
+    } else lcd.setBacklight(true);
+    t_clear();
     backlight_off.start();
     screen_show.start();
   }
   if (b.hold()) {
     db[kk::alarm_bool] = !db[kk::alarm_bool];
     db.update();
-    lcd.setBacklight(true);
+    t_clear();
+    if (!lcd.isBacklight()) lcd.setBacklight(true);
     backlight_off.start();
     screen_show.start();
   }
@@ -554,7 +550,7 @@ void lcd_show() {
     lcd.clear();
   }
   // экран 1
-  if (flag) {
+  if (flag && lcd.isBacklight()) {
     // иконки
     if (!t_ico) {
       if (temp_in < 0) lcd.setCursor(9, 0);
@@ -617,7 +613,7 @@ void lcd_show() {
     }
   } 
   // Экран 2
-  if (!flag) {
+  if (!flag && lcd.isBacklight()) {
     // иконки
     if (!t_ico) {
       lcd.home();
@@ -684,6 +680,7 @@ void alarm_tick() {
   if ((db[kk::alarm_bool] == true) && (db[kk::alarm_hour] == NTP.hour()) && (db[kk::alarm_min] == NTP.minute())) {
   	if (alarm == false) {
       beeper = true;
+      lcd.setBacklight(true);
       lcd.clear();
       t_clear();
     	alarm = !alarm;
@@ -711,7 +708,6 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
-      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       t_clear();
       lcd.clear();
@@ -734,7 +730,6 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
-      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       t_clear();
       lcd.clear();
@@ -757,7 +752,6 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
-      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       t_clear();
       lcd.clear();
@@ -780,7 +774,6 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
-      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       t_clear();
       lcd.clear();
@@ -803,7 +796,6 @@ void reminder_tick() {
         db.update();
       }
       delay(1000);
-      lcd.setBacklight(true);
       lcd.setTextLoop(false);
       t_clear();
       lcd.clear();
@@ -817,7 +809,6 @@ void new_hour() {
     if (db[kk::new_hour_screen_bool] == true) {
       lcd.setBacklight(true);
       //lcd.setDisplay(true);
-      lcd.setBacklight(true);
       backlight_off.start();
     }
     if (db[kk::new_hour_sound_bool] == true) {
