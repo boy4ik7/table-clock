@@ -243,6 +243,7 @@ void build(sets::Builder& b) {
   
   if (b.beginGroup("Screen and Time")) {
     b.Switch(kk::do_not_turn_off_screen, "Do not turn off the screen");
+    db.update();
     if (db[kk::do_not_turn_off_screen] != t_dntofs) {
       if (db[kk::do_not_turn_off_screen]) {
         lcd.setBacklight(true);
